@@ -92,26 +92,9 @@
           <!-- Dashboard Section -->
           <section id="dashboard-section" class="section active">
             <div class="dashboard-grid">
-              <div class="stat-card">
-                <div class="stat-icon"><i class="fas fa-envelope"></i></div>
-                <div class="stat-content">
-                  <h3>Emails Today</h3>
-                  <p id="emails-today" class="stat-value">0</p>
-                </div>
-              </div>
-              <div class="stat-card">
-                <div class="stat-icon"><i class="fas fa-check-circle"></i></div>
-                <div class="stat-content">
-                  <h3>Hostinger Used</h3>
-                  <p id="hostinger-used" class="stat-value">0/1000</p>
-                </div>
-              </div>
-              <div class="stat-card">
-                <div class="stat-icon"><i class="fas fa-sync-alt"></i></div>
-                <div class="stat-content">
-                  <h3>Brevo Used</h3>
-                  <p id="brevo-used" class="stat-value">0/300</p>
-                </div>
+                            <!-- Container for dynamically rendered Brevo account stats -->
+              <div id="brevo-accounts-container" class="dashboard-grid-dynamic">
+                <!-- Individual Brevo account stats will be rendered here by app.js -->
               </div>
               <div class="stat-card">
                 <div class="stat-icon"><i class="fas fa-cog"></i></div>
