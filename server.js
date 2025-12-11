@@ -9,7 +9,7 @@ const { runAutomation, runAutomationForRecipients } = require('./services/automa
 const pool = require('./config/database');
 const { verifyToken, generateToken } = require('./middleware/auth');
 const { findUserByEmail, searchUsers, getTotalUserCount } = require('./services/dbService');
-const { sendEmail, getEmailStats } = require('./services/emailService');
+const { sendEmail, getEmailStats, loadBrevoAccounts } = require('./services/emailService');
 const { getAllTemplates, getTemplateById, renderTemplate } = require('./services/templates');
 
 const app = express();
@@ -880,6 +880,7 @@ app.listen(PORT, async () => {
   
   // Load scheduled automations on server start
   try {
+    loadBrevoAccounts(); // Load Brevo accounts from ENV
     await loadScheduledAutomations();
     await resetRunningAutomations();
     console.log('✓ Scheduled automations loaded');
