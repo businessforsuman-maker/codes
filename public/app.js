@@ -109,10 +109,16 @@ async function handleLogout() {
 async function loadDashboard() {
   try {
     // Load email stats
-    const stats = await apiCall('/email/stats');
-    document.getElementById('emails-today').textContent = stats.hostinger.sent + stats.brevo.sent;
-    document.getElementById('hostinger-used').textContent = `${stats.hostinger.sent}/${stats.hostinger.limit}`;
-    document.getElementById('brevo-used').textContent = `${stats.brevo.sent}/${stats.brevo.limit}`;
+	    const stats = await apiCall('/email/stats');
+	    const totalSent = stats.hostinger.sent + stats.brevo.sent;
+	    const totalLimit = stats.hostinger.limit + stats.brevo.limit;
+	    
+	    // Update total emails sent today
+	    document.getElementById('emails-today').textContent = `${totalSent}/${totalLimit}`;
+	    
+	    // Update individual provider usage
+	    document.getElementById('hostinger-used').textContent = `${stats.hostinger.sent}/${stats.hostinger.limit}`;
+	    document.getElementById('brevo-used').textContent = `${stats.brevo.sent}/${stats.brevo.limit}`;
 
     // Load automations
     const automations = await apiCall('/automations');
