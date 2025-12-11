@@ -126,28 +126,18 @@ async function runAutomation(campaignId, chunkSize = 100, emailInterval = 10) {
 	            }
 	        }
 	
-	        const stats = await getEmailStats();
-	        const hostingerRemaining = stats.hostinger.remaining;
-	        const brevoRemaining = stats.brevo.remaining;
+		        const stats = await getEmailStats();
+		        const totalRemaining = stats.totalRemaining;
+
+		        if (totalRemaining <= 0) {
+		            // All Brevo accounts limits exhausted
+		            await updateAutomationState(campaignId, currentLastUserId, emailsSentToday, 'paused', state.start_time, getISTMySQLDatetime(), currentDateStr);
+		            return { success: false, message: `Automation paused. Daily limit reached for all Brevo accounts. Resuming tomorrow from user ID ${currentLastUserId}.`, totalSent: totalSentInRun, totalUsers };
+		        }
+
 	
-	        let providerToUse = null;
-	        let providerRemaining = 0;
-	
-	        // Failover logic: Hostinger first, then Brevo
-	        if (hostingerRemaining > 0) {
-	            providerToUse = 'hostinger';
-	            providerRemaining = hostingerRemaining;
-	        } else if (brevoRemaining > 0) {
-	            providerToUse = 'brevo';
-	            providerRemaining = brevoRemaining;
-	        } else {
-	            // Both limits exhausted
-	            await updateAutomationState(campaignId, currentLastUserId, emailsSentToday, 'paused', state.start_time, getISTMySQLDatetime(), currentDateStr);
-	            return { success: false, message: `Automation paused. Daily limit reached for all providers. Resuming tomorrow from user ID ${currentLastUserId}.`, totalSent: totalSentInRun, totalUsers };
-	        }
-	
-	        // Determine the batch size: min(chunkSize, providerRemaining)
-	        const batchLimit = Math.min(chunkSize, providerRemaining);
+	        // Determine the batch size: min(chunkSize, totalRemaining)
+	        const batchLimit = Math.min(chunkSize, totalRemaining);
 	        
 	        // Fetch the next batch of users (resume logic)
 	        const usersBatch = await getUsersBatch(currentLastUserId, batchLimit);
@@ -170,11 +160,11 @@ async function runAutomation(campaignId, chunkSize = 100, emailInterval = 10) {
 	                continue;
 	            }
 	            
-	            // Re-check provider limit before sending each email
-	            if (batchSentCount >= providerRemaining) {
-	                console.log(`Provider ${providerToUse} limit reached. Breaking batch.`);
-	                break; // Break the inner loop to re-evaluate providers in the next outer loop iteration
-	            }
+// Re-check total remaining limit before sending each email
+if (batchSentCount >= totalRemaining) {
+    console.log(`Total daily limit reached. Breaking batch.`);
+    break; // Break the inner loop to re-evaluate limits in the next outer loop iteration
+}
 	
 	            try {
 	                // 1. Render template with user-specific variables
@@ -182,8 +172,8 @@ async function runAutomation(campaignId, chunkSize = 100, emailInterval = 10) {
 	                const finalSubject = rendered.subject;
 	                const htmlContent = rendered.html;
 	
-	                // 2. Send email using the determined provider
-	                await sendEmail(user.email, finalSubject, htmlContent, null, providerToUse, campaignId);
+	               // 2. Send email (provider selection is now handled internally by emailService)
+                    await sendEmail(user.email, finalSubject, htmlContent, null, campaignId);
 	                
 	                // 3. Add delay between emails
 	                if (emailInterval > 0) {
@@ -248,47 +238,42 @@ async function runAutomationForRecipients(campaignId, recipients, emailInterval 
 	    for (let i = 0; i < recipients.length; i++) {
 	      const email = recipients[i];
 	      try {
-	        // Re-fetch stats inside the loop to get updated remaining counts
-	        const currentStats = await getEmailStats();
-	        
-	        // Determine provider based on remaining limits
-	        let provider = null;
-	        if (currentStats.hostinger.remaining > 0) {
-	          provider = 'hostinger';
-	        } else if (currentStats.brevo.remaining > 0) {
-	          provider = 'brevo';
-	        } else {
-	          // If limits are reached, stop processing the rest of the recipients
-	          console.log('Daily limits reached for all providers. Stopping recipient run.');
-	          // Return success=false to indicate partial completion due to limit
-	          return {
-	            success: false,
-	            message: `Daily limits reached for all providers. Sent ${totalSent}/${recipients.length} emails.`,
-	            totalSent,
-	            totalUsers: recipients.length
-	          };
-	        }
-	        
-	        // Check if user has already received this email for this campaign
-	        const alreadySent = await hasUserReceivedEmail(campaignId, email);
-	        if (alreadySent) {
-	            console.log(`Skipping recipient ${email} for campaign ${campaignId}: already sent.`);
-	            continue;
-	        }
-	        
-	        // Get user details if they exist
-	        const [users] = await connection.execute(
-	          'SELECT id, email, username FROM users WHERE email = ?',
-	          [email]
-	        );
-	        
-	        const user = users.length > 0 ? users[0] : { email };
-	        
-	        // Render template
-	        const rendered = renderTemplate(templateId, { email: user.email, user });
-	        
-	        // Send email
-	        await sendEmail(user.email, rendered.subject, rendered.html, null, provider, campaignId);
+// Re-fetch stats inside the loop to get updated remaining counts
+const currentStats = await getEmailStats();
+
+// Check total remaining limits for all Brevo accounts
+if (currentStats.totalRemaining <= 0) {
+  // If limits are reached, stop processing the rest of the recipients
+  console.log('Daily limits reached for all Brevo accounts. Stopping recipient run.');
+  // Return success=false to indicate partial completion due to limit
+  return {
+    success: false,
+    message: `Daily limits reached for all Brevo accounts. Sent ${totalSent}/${recipients.length} emails.`,
+    totalSent,
+    totalUsers: recipients.length
+  };
+}
+
+// Check if user has already received this email for this campaign
+const alreadySent = await hasUserReceivedEmail(campaignId, email);
+if (alreadySent) {
+    console.log(`Skipping recipient ${email} for campaign ${campaignId}: already sent.`);
+    continue;
+}
+
+// Get user details if they exist
+const [users] = await connection.execute(
+  'SELECT id, email, username FROM users WHERE email = ?',
+  [email]
+);
+
+const user = users.length > 0 ? users[0] : { email };
+
+// Render template
+const rendered = renderTemplate(templateId, { email: user.email, user });
+
+// Send email (provider selection is now handled internally by emailService)
+await sendEmail(user.email, rendered.subject, rendered.html, null, campaignId);
 	        
 	        // Add delay between emails if not the last one
 	        if (emailInterval > 0 && i < recipients.length - 1) {
