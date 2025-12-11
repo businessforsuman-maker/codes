@@ -57,29 +57,12 @@ async function runAutomation(campaignId, chunkSize = 100, emailInterval = 10) {
         await updateAutomationState(campaignId, 0, 0, 'pending', currentTimeStr, getISTMySQLDatetime(), currentDateStr); // <-- MODIFIED LINE
     } else {
         // Check if 24 hours have passed since start
-        if (state.start_time && state.last_run_time) {
-            const lastRun = new Date(state.last_run_time);
-            const hoursSinceLastRun = (now - lastRun) / (1000 * 60 * 60);
-            
-                    if (hoursSinceLastRun >= 24) {
-                    state.emails_sent_today = 0;
-                    state.last_reset_date = currentDateStr;
-                    state.status = 'running';
-                    await updateAutomationState(
-                        campaignId, 
-                        state.last_user_id, 
-                        0, 
-                        'running',
-                        state.start_time, // Keep original start time
-                        getISTMySQLDatetime(), // Update last run time
-                        currentDateStr // <-- ADDED LINE
-                    );
-            }
-        }
+        // Remove 24-hour check, rely solely on date change for daily reset.
+        // The daily reset logic below handles the continuation.
     }
 
-if (state.last_reset_date !== currentDateStr) {
-            // Reset daily count but keep last_user_id
+	if (state.last_reset_date !== currentDateStr) {
+            // Daily reset: Reset total sent count, update reset date, and set status to running
             state.emails_sent_today = 0;
             state.last_reset_date = currentDateStr;
             state.status = 'running';
@@ -89,8 +72,8 @@ if (state.last_reset_date !== currentDateStr) {
                 0, 
                 'running',
                 state.start_time || currentTimeStr, // Preserve or set start time
-                getISTMySQLDatetime(), // <-- MODIFIED LINE
-                currentDateStr // <-- ADDED LINE
+                getISTMySQLDatetime(),
+                currentDateStr
             );
         }
 
@@ -103,12 +86,15 @@ if (state.last_reset_date !== currentDateStr) {
         return { success: false, message: `Automation is currently in ${state.status} state. Cannot run.`, totalSent: 0, totalUsers };
     }
 
-    let currentLastUserId = state.last_user_id;
-    let emailsSentToday = state.emails_sent_today;
-    let totalSentInRun = 0;
-    let isPaused = false;
-    
-    await updateAutomationState(campaignId, currentLastUserId, emailsSentToday, 'running', state.start_time, getISTMySQLDatetime(), currentDateStr);
+	    let currentLastUserId = state.last_user_id;
+	    let emailsSentToday = state.emails_sent_today;
+	    let totalSentInRun = 0;
+	    let isPaused = false;
+	    
+	    // Ensure status is 'running' before starting the loop, unless it was 'paused' by limit
+	    if (state.status !== 'paused') {
+	        await updateAutomationState(campaignId, currentLastUserId, emailsSentToday, 'running', state.start_time, getISTMySQLDatetime(), currentDateStr);
+	    }
 
     const connection = await pool.getConnection();
     const [automations] = await connection.execute(
@@ -122,119 +108,119 @@ if (state.last_reset_date !== currentDateStr) {
     }
     const templateId = automations[0].template_id;
 
-    while (!isPaused) {
-                const automationDetails = await getAutomationDetails(campaignId);
-        if (!automationDetails || automationDetails.enabled === 0) {
-            await updateAutomationState(campaignId, currentLastUserId, emailsSentToday, 'stopped', state.start_time, getISTMySQLDatetime(), currentDateStr);
-            return { success: false, message: 'Automation stopped by user or disabled.', totalSent: totalSentInRun, totalUsers };
-        }
-        let currentState = await getAutomationState(campaignId);
-        if (currentState.status === 'stopped' || currentState.status === 'disabled') {
-            return { success: false, message: 'Automation stopped by user.', totalSent: totalSentInRun, totalUsers };
-        }
-        const stats = await getEmailStats();
-        const hostingerRemaining = stats.hostinger.remaining;
-        const brevoRemaining = stats.brevo.remaining;
+	    while (true) {
+	        const automationDetails = await getAutomationDetails(campaignId);
+	        if (!automationDetails || automationDetails.enabled === 0) {
+	            await updateAutomationState(campaignId, currentLastUserId, emailsSentToday, 'stopped', state.start_time, getISTMySQLDatetime(), currentDateStr);
+	            return { success: false, message: 'Automation stopped by user or disabled.', totalSent: totalSentInRun, totalUsers };
+	        }
+	        let currentState = await getAutomationState(campaignId);
+	        if (currentState.status === 'stopped' || currentState.status === 'disabled' || currentState.status === 'paused') {
+	            // If status is 'paused', it means limits were hit in a previous run.
+	            // We only continue if the date has reset, which is handled by the initial check.
+	            if (currentState.status === 'paused' && currentState.last_reset_date === currentDateStr) {
+	                return { success: false, message: `Automation paused. Daily limit reached for all providers. Resuming tomorrow from user ID ${currentLastUserId}.`, totalSent: totalSentInRun, totalUsers };
+	            }
+	            if (currentState.status !== 'paused') {
+	                return { success: false, message: `Automation stopped by user.`, totalSent: totalSentInRun, totalUsers };
+	            }
+	        }
+	
+	        const stats = await getEmailStats();
+	        const hostingerRemaining = stats.hostinger.remaining;
+	        const brevoRemaining = stats.brevo.remaining;
+	
+	        let providerToUse = null;
+	        let providerRemaining = 0;
+	
+	        // Failover logic: Hostinger first, then Brevo
+	        if (hostingerRemaining > 0) {
+	            providerToUse = 'hostinger';
+	            providerRemaining = hostingerRemaining;
+	        } else if (brevoRemaining > 0) {
+	            providerToUse = 'brevo';
+	            providerRemaining = brevoRemaining;
+	        } else {
+	            // Both limits exhausted
+	            await updateAutomationState(campaignId, currentLastUserId, emailsSentToday, 'paused', state.start_time, getISTMySQLDatetime(), currentDateStr);
+	            return { success: false, message: `Automation paused. Daily limit reached for all providers. Resuming tomorrow from user ID ${currentLastUserId}.`, totalSent: totalSentInRun, totalUsers };
+	        }
+	
+	        // Determine the batch size: min(chunkSize, providerRemaining)
+	        const batchLimit = Math.min(chunkSize, providerRemaining);
+	        
+	        // Fetch the next batch of users (resume logic)
+	        const usersBatch = await getUsersBatch(currentLastUserId, batchLimit);
+	
+	        if (usersBatch.length === 0) {
+	            // All users processed
+	            await updateAutomationState(campaignId, totalUsers, emailsSentToday, 'completed', state.start_time, getISTMySQLDatetime(), currentDateStr);
+	            return { success: true, message: 'Automation completed successfully.', totalSent: totalUsers, totalUsers };
+	        }
+	
+	        let batchSentCount = 0;
+	        for (const user of usersBatch) {
+	            const email = user.email;
+	            
+	            // Check if user has already received this email for this campaign
+	            const alreadySent = await hasUserReceivedEmail(campaignId, email);
+	            if (alreadySent) {
+	                console.log(`Skipping user ${email} for campaign ${campaignId}: already sent.`);
+	                currentLastUserId = user.id; // Crucial: Mark user as processed
+	                continue;
+	            }
+	            
+	            // Re-check provider limit before sending each email
+	            if (batchSentCount >= providerRemaining) {
+	                console.log(`Provider ${providerToUse} limit reached. Breaking batch.`);
+	                break; // Break the inner loop to re-evaluate providers in the next outer loop iteration
+	            }
+	
+	            try {
+	                // 1. Render template with user-specific variables
+	                const rendered = renderTemplate(templateId, { email: user.email, user });
+	                const finalSubject = rendered.subject;
+	                const htmlContent = rendered.html;
+	
+	                // 2. Send email using the determined provider
+	                await sendEmail(user.email, finalSubject, htmlContent, null, providerToUse, campaignId);
+	                
+	                // 3. Add delay between emails
+	                if (emailInterval > 0) {
+	                    await delay(emailInterval * 1000);
+	                }
+	                
+	                // 4. Update state counters
+	                currentLastUserId = user.id;
+	                emailsSentToday++;
+	                totalSentInRun++;
+	                batchSentCount++;
+	
+	            } catch (err) {
+	                // Log error but continue to the next user
+	                console.error(`Error sending email to ${user.email}:`, err.message);
+	            }
+	        }
+	
+	        // Update state after processing the batch
+	        await updateAutomationState(campaignId, currentLastUserId, emailsSentToday, 'running', state.start_time, getISTMySQLDatetime(), currentDateStr);
+	
+	        // If the inner loop broke due to a limit (batchSentCount < usersBatch.length), 
+	        // the outer loop will re-evaluate limits and switch provider if possible.
+	        // If the batch was fully processed (batchSentCount === usersBatch.length), 
+	        // the outer loop continues to the next batch.
+	        // If the batch was less than batchLimit and all users were processed (handled by usersBatch.length === 0 check), the function returns.
+	    }
 
-        let provider = null;
-        let providerRemaining = 0;
-
-        // Failover logic: Hostinger first, then Brevo
-        if (hostingerRemaining > 0) {
-            provider = 'hostinger';
-            providerRemaining = hostingerRemaining;
-        } else if (brevoRemaining > 0) {
-            provider = 'brevo';
-            providerRemaining = brevoRemaining;
-        } else {
-            // Both limits exhausted
-            isPaused = true;
-            await updateAutomationState(campaignId, currentLastUserId, emailsSentToday, 'paused', state.start_time, getISTMySQLDatetime(), currentDateStr);
-            break;
-        }
-
-        // Determine the batch size: min(chunkSize, providerRemaining)
-        const batchLimit = Math.min(chunkSize, providerRemaining);
-        if (batchLimit === 0) {
-            isPaused = true;
-            await updateAutomationState(campaignId, currentLastUserId, emailsSentToday, 'paused', state.start_time, getISTMySQLDatetime(), currentDateStr); 
-            break;
-        }
-
-        // Fetch the next batch of users (resume logic)
-        const usersBatch = await getUsersBatch(currentLastUserId, batchLimit);
-
-        if (usersBatch.length === 0) {
-            // All users processed
-            await updateAutomationState(campaignId, totalUsers, emailsSentToday, 'completed', state.start_time, getISTMySQLDatetime(), currentDateStr);
-            return { success: true, message: 'Automation completed successfully.', totalSent: totalUsers, totalUsers };
-        }
-
-        for (const user of usersBatch) {
-            const email = user.email;
-            
-            // Check if user has already received this email for this campaign
-            const alreadySent = await hasUserReceivedEmail(campaignId, email);
-            if (alreadySent) {
-                console.log(`Skipping user ${email} for campaign ${campaignId}: already sent.`);
-                currentLastUserId = user.id; // Crucial: Mark user as processed
-                continue;
-            }
-            
-            // Determine provider based on remaining limits
-            let provider = null;
-            try {
-                // 1. Render template with user-specific variables
-                const rendered = renderTemplate(templateId, { email: user.email, user });
-                const finalSubject = rendered.subject;
-                const htmlContent = rendered.html;
-
-// 2. Send email using the determined provider
-await sendEmail(user.email, finalSubject, htmlContent, null, provider, campaignId);
-// 3. Add delay between emails
-if (emailInterval > 0) {
-    await delay(emailInterval * 1000);
-}
-// 4. Update state  // <-- CHANGED FROM "3." TO "4."
-currentLastUserId = user.id;
-                emailsSentToday++;
-                totalSentInRun++;
-
-                // 4. Check if the current provider's limit is reached
-                if (emailsSentToday >= stats[provider].limit) {
-                    // Update state and break to re-evaluate providers in the next loop iteration
-                    await updateAutomationState(campaignId, currentLastUserId, emailsSentToday, 'running', state.start_time, getISTMySQLDatetime(), currentDateStr);
-                    isPaused = true; // Break the inner loop to re-evaluate limits
-                    break;
-                }
-
-            } catch (err) {
-                // Log error but continue to the next user
-                console.error(`Error sending email to ${user.email}:`, err.message);
-            }
-        }
-
-        // Update state after processing the batch
-        await updateAutomationState(campaignId, currentLastUserId, emailsSentToday, 'running', state.start_time, getISTMySQLDatetime(), currentDateStr);
-
-        // If the inner loop broke due to a limit, the outer loop will re-evaluate limits.
-        if (isPaused) {
-            isPaused = false; // Reset for the outer loop to re-evaluate
-        } else if (usersBatch.length < batchLimit) {
-            // This means we processed the last batch of users
-            await updateAutomationState(campaignId, totalUsers, emailsSentToday, 'completed', state.start_time, getISTMySQLDatetime(), currentDateStr);
-            return { success: true, message: 'Automation completed successfully.', totalSent: totalUsers, totalUsers };
-        }
-    }
-
-    // If the loop exited due to limits
-    return {
-        success: false,
-        message: `Automation paused. Daily limit reached for all providers. Resuming tomorrow from user ID ${currentLastUserId}.`,
-        totalSent: totalSentInRun,
-        totalUsers
-    };
-}
+	    // This part is unreachable due to the infinite loop structure and returns inside the loop.
+	    // Keeping it as a fallback, though the logic is now handled inside the while(true) loop.
+	    return {
+	        success: false,
+	        message: `Automation stopped/paused unexpectedly.`,
+	        totalSent: totalSentInRun,
+	        totalUsers
+	    };
+	}
 // services/automationService.js - Add this function
 /**
  * Run automation for specific recipients only
@@ -258,50 +244,62 @@ async function runAutomationForRecipients(campaignId, recipients, emailInterval 
     let totalSent = 0;
     
     // Process each recipient
-    // Process each recipient
-    for (let i = 0; i < recipients.length; i++) {
-      const email = recipients[i];
-      try {
-                  // Check if user has already received this email for this campaign
-        const alreadySent = await hasUserReceivedEmail(campaignId, email);
-        if (alreadySent) {
-            console.log(`Skipping recipient ${email} for campaign ${campaignId}: already sent.`);
-            continue;
-        }
-        // Get user details if they exist
-        const [users] = await connection.execute(
-          'SELECT id, email, username FROM users WHERE email = ?',
-          [email]
-        );
-        
-        const user = users.length > 0 ? users[0] : { email };
-        
-        // Render template
-        const rendered = renderTemplate(templateId, { email: user.email, user });
-        
-        // Determine provider based on remaining limits
-        let provider = null;
-        if (stats.hostinger.remaining > 0) {
-          provider = 'hostinger';
-        } else if (stats.brevo.remaining > 0) {
-          provider = 'brevo';
-        } else {
-          throw new Error('Daily limits reached for all providers');
-        }
-        
-        // Send email
-        await sendEmail(user.email, rendered.subject, rendered.html, null, provider, campaignId);
-                // Add delay between emails if not the last one
-        if (emailInterval > 0 && i < recipients.length - 1) {
-          await delay(emailInterval * 1000);
-        }
-        totalSent++;
-        
-        
-      } catch (err) {
-        console.error(`Error sending to ${email}:`, err.message);
-      }
-    }
+	    // Process each recipient
+	    for (let i = 0; i < recipients.length; i++) {
+	      const email = recipients[i];
+	      try {
+	        // Re-fetch stats inside the loop to get updated remaining counts
+	        const currentStats = await getEmailStats();
+	        
+	        // Determine provider based on remaining limits
+	        let provider = null;
+	        if (currentStats.hostinger.remaining > 0) {
+	          provider = 'hostinger';
+	        } else if (currentStats.brevo.remaining > 0) {
+	          provider = 'brevo';
+	        } else {
+	          // If limits are reached, stop processing the rest of the recipients
+	          console.log('Daily limits reached for all providers. Stopping recipient run.');
+	          // Return success=false to indicate partial completion due to limit
+	          return {
+	            success: false,
+	            message: `Daily limits reached for all providers. Sent ${totalSent}/${recipients.length} emails.`,
+	            totalSent,
+	            totalUsers: recipients.length
+	          };
+	        }
+	        
+	        // Check if user has already received this email for this campaign
+	        const alreadySent = await hasUserReceivedEmail(campaignId, email);
+	        if (alreadySent) {
+	            console.log(`Skipping recipient ${email} for campaign ${campaignId}: already sent.`);
+	            continue;
+	        }
+	        
+	        // Get user details if they exist
+	        const [users] = await connection.execute(
+	          'SELECT id, email, username FROM users WHERE email = ?',
+	          [email]
+	        );
+	        
+	        const user = users.length > 0 ? users[0] : { email };
+	        
+	        // Render template
+	        const rendered = renderTemplate(templateId, { email: user.email, user });
+	        
+	        // Send email
+	        await sendEmail(user.email, rendered.subject, rendered.html, null, provider, campaignId);
+	        
+	        // Add delay between emails if not the last one
+	        if (emailInterval > 0 && i < recipients.length - 1) {
+	          await delay(emailInterval * 1000);
+	        }
+	        totalSent++;
+	        
+	      } catch (err) {
+	        console.error(`Error sending to ${email}:`, err.message);
+	      }
+	    }
     
     return {
       success: true,
