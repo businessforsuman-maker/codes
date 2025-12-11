@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Email Automation Platform</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+  <link rel="shortcut icon" href="/images/favicon.webp" type="image/x-icon">
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/favicon.webp">
+  <link rel="icon" type="image/webp" sizes="32x32" href="/images/favicon.webp">
+  <link rel="icon" type="image/webp" sizes="16x16" href="/images/favicon.webp">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div id="app">
+    <!-- Login Screen -->
+    <div id="login-screen" class="auth-container">
+      <div class="auth-card">
+        <div class="auth-header">
+          <div class="auth-logo">
+            <i class="fas fa-envelope"></i>
+          </div>
+          <h1>Email Automation</h1>
+          <p>Manage your email campaigns with ease</p>
+        </div>
+        <form id="login-form" class="auth-form">
+          <div class="form-group">
+            <label for="email">Email Address</label>
+            <input type="email" id="email" name="email" required placeholder="admin@example.com">
+          </div>
+          <div class="form-group">
+            <label for="password">Password</label>
+            <input type="password" id="password" name="password" required placeholder="••••••••">
+          </div>
+          <button type="submit" class="btn btn-primary btn-block">
+            <i class="fas fa-sign-in-alt"></i> Sign In
+          </button>
+          <p class="auth-hint">Default: admin@example.com / admin123</p>
+        </form>
+      </div>
+    </div>
+
+    <!-- Main Dashboard -->
+    <div id="dashboard" class="dashboard" style="display: none;">
+      <!-- Sidebar Navigation -->
+      <aside class="sidebar">
+        <div class="sidebar-header">
+          <i class="fas fa-envelope"></i>
+          <h2>Email Automation</h2>
+        </div>
+        <nav class="sidebar-nav">
+          <a href="#" class="nav-item active" data-section="dashboard">
+            <i class="fas fa-chart-line"></i>
+            <span>Dashboard</span>
+          </a>
+          <a href="#" class="nav-item" data-section="automations">
+            <i class="fas fa-cogs"></i>
+            <span>Automations</span>
+          </a>
+          <a href="#" class="nav-item" data-section="templates">
+            <i class="fas fa-file-alt"></i>
+            <span>Templates</span>
+          </a>
+          <a href="#" class="nav-item" data-section="admin">
+            <i class="fas fa-users-cog"></i>
+            <span>Admin Panel</span>
+          </a>
+          <a href="#" class="nav-item" data-section="settings">
+            <i class="fas fa-sliders-h"></i>
+            <span>Settings</span>
+          </a>
+        </nav>
+        <div class="sidebar-footer">
+          <button id="logout-btn" class="btn btn-danger btn-block">
+            <i class="fas fa-sign-out-alt"></i> Logout
+          </button>
+        </div>
+      </aside>
+
+      <!-- Main Content -->
+      <main class="main-content">
+        <header class="top-header">
+          <div class="header-left">
+            <h1 id="section-title">Dashboard</h1>
+          </div>
+          <div class="header-right">
+            <span id="admin-name" class="admin-name"></span>
+          </div>
+        </header>
+
+        <div class="content-wrapper">
+          <!-- Dashboard Section -->
+          <section id="dashboard-section" class="section active">
+            <div class="dashboard-grid">
+              <div class="stat-card">
+                <div class="stat-icon"><i class="fas fa-envelope"></i></div>
+                <div class="stat-content">
+                  <h3>Emails Today</h3>
+                  <p id="emails-today" class="stat-value">0</p>
+                </div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-icon"><i class="fas fa-check-circle"></i></div>
+                <div class="stat-content">
+                  <h3>Hostinger Used</h3>
+                  <p id="hostinger-used" class="stat-value">0/1000</p>
+                </div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-icon"><i class="fas fa-sync-alt"></i></div>
+                <div class="stat-content">
+                  <h3>Brevo Used</h3>
+                  <p id="brevo-used" class="stat-value">0/300</p>
+                </div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-icon"><i class="fas fa-cog"></i></div>
+                <div class="stat-content">
+                  <h3>Active Automations</h3>
+                  <p id="active-automations" class="stat-value">0</p>
+                </div>
+              </div>
+            </div>
+
+            <div class="section-card">
+              <h2>Quick Actions</h2>
+              <div class="quick-actions">
+                <button class="btn btn-primary" onclick="switchSection('automations')">
+                  <i class="fas fa-plus"></i> Create Automation
+                </button>
+                <button class="btn btn-secondary" onclick="switchSection('templates')">
+                  <i class="fas fa-eye"></i> View Templates
+                </button>
+                <button class="btn btn-secondary" onclick="openSendTestModal()">
+                  <i class="fas fa-paper-plane"></i> Send Test Email
+                </button>
+              </div>
+            </div>
+
+            <div class="section-card">
+              <h2>Recent Activity</h2>
+              <div id="recent-activity" class="activity-list">
+                <p class="empty-state">No recent activity</p>
+              </div>
+            </div>
+          </section>
+
+          <!-- Automations Section -->
+          <section id="automations-section" class="section">
+            <div class="section-header">
+              <h2>Email Automations</h2>
+              <button class="btn btn-primary" onclick="openAutomationModal()">
+                <i class="fas fa-plus"></i> New Automation
+              </button>
+            </div>
+            <div id="automations-list" class="automations-list">
+              <p class="empty-state">No automations yet. Create one to get started!</p>
+            </div>
+          </section>
+
+          <!-- Templates Section -->
+          <section id="templates-section" class="section">
+            <div class="section-header">
+              <h2>Email Templates</h2>
+            </div>
+            <div id="templates-list" class="templates-grid">
+              <p class="empty-state">Loading templates...</p>
+            </div>
+          </section>
+
+          <!-- Admin Panel Section -->
+          <section id="admin-section" class="section">
+            <div class="section-header">
+              <h2>Admin Management</h2>
+              <button class="btn btn-primary" onclick="openAdminModal()">
+                <i class="fas fa-plus"></i> Add Admin
+              </button>
+            </div>
+            <div id="admins-list" class="admins-list">
+              <p class="empty-state">Loading admins...</p>
+            </div>
+          </section>
+
+          <!-- Settings Section -->
+          <section id="settings-section" class="section">
+            <div class="section-header">
+              <h2>Settings</h2>
+            </div>
+            <div class="settings-grid">
+              <div class="settings-card">
+                <div class="settings-icon"><i class="fas fa-envelope"></i></div>
+                <h3>Email Configuration</h3>
+                <p>Hostinger and Brevo SMTP settings are configured via environment variables.</p>
+                <p class="settings-hint">Edit .env file to change email provider credentials.</p>
+              </div>
+              <div class="settings-card">
+                <div class="settings-icon"><i class="fas fa-database"></i></div>
+                <h3>Database</h3>
+                <p>MariaDB connection is configured via environment variables.</p>
+                <p class="settings-hint">Ensure your database is running and accessible.</p>
+              </div>
+              <div class="settings-card">
+                <div class="settings-icon"><i class="fas fa-book"></i></div>
+                <h3>API Documentation</h3>
+                <p>All API endpoints are available at /api/</p>
+                <button class="btn btn-secondary" onclick="window.open('/api-docs.html')">
+                  <i class="fas fa-external-link-alt"></i> View API Docs
+                </button>
+              </div>
+            </div>
+          </section>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <!-- Modals -->
+
+  <!-- Send Test Email Modal -->
+  <div id="send-test-modal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2><i class="fas fa-paper-plane"></i> Send Test Email</h2>
+        <button class="modal-close" onclick="closeSendTestModal()">×</button>
+      </div>
+      <form id="send-test-form" class="modal-form">
+        <div class="form-group">
+          <label for="test-email">Recipient Email</label>
+          <input type="email" id="test-email" required placeholder="recipient@example.com">
+        </div>
+        <div class="form-group">
+          <label for="test-subject">Subject</label>
+          <input type="text" id="test-subject" required placeholder="Email subject">
+        </div>
+        <div class="form-group">
+          <label for="test-template">Template (Optional)</label>
+          <select id="test-template">
+            <option value="">Custom Email</option>
+          </select>
+        </div>
+        <div class="form-actions">
+          <button type="submit" class="btn btn-primary">
+            <i class="fas fa-check"></i> Send Test Email
+          </button>
+          <button type="button" class="btn btn-secondary" onclick="closeSendTestModal()">
+            <i class="fas fa-times"></i> Cancel
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Automation Modal -->
+  <div id="automation-modal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2><i class="fas fa-cog"></i> Create Automation</h2>
+        <button class="modal-close" onclick="closeAutomationModal()">×</button>
+      </div>
+      <form id="automation-form" class="modal-form">
+        <div class="form-group">
+          <label for="auto-name">Automation Name</label>
+          <input type="text" id="auto-name" required placeholder="e.g., Welcome Email">
+        </div>
+        <div class="form-group">
+          <label for="auto-template">Template</label>
+          <select id="auto-template" required></select>
+        </div>
+        <div class="form-group">
+          <label for="auto-trigger">Trigger Type</label>
+          <select id="auto-trigger" required onchange="updateScheduleFields()">
+            <option value="manual">Manual</option>
+            <option value="scheduled">Scheduled</option>
+          </select>
+        </div>
+              <!-- Schedule Fields (hidden by default) -->
+      <div id="schedule-fields" style="display: none;">
+        <div class="form-group">
+          <label for="schedule-date">Date</label>
+          <input type="date" id="schedule-date">
+        </div>
+        <div class="form-group">
+          <label for="schedule-time">Time</label>
+          <input type="time" id="schedule-time">
+        </div>
+        <div class="form-group">
+          <label for="schedule-repeat">Repeat</label>
+          <select id="schedule-repeat">
+            <option value="once">Once</option>
+            <option value="daily">Daily</option>
+            <option value="weekly">Weekly</option>
+            <option value="monthly">Monthly</option>
+          </select>
+        </div>
+      </div>
+            <!-- Email Interval (moved here) -->
+      <div class="form-group">
+        <label for="email-interval">Email Interval (seconds)</label>
+        <input type="number" id="email-interval" min="1" value="10">
+        <small class="form-text">Time between each email send (6 emails per minute with 10 seconds)</small>
+      </div>
+      <div class="form-group">
+        <label for="auto-recipients">Recipients (leave empty for all users)</label>
+        <div class="recipients-controls">
+          <textarea id="auto-recipients" placeholder="Enter emails or select users below (comma-separated)"></textarea>
+          <button type="button" class="btn btn-secondary" onclick="openUserSearchModal()" style="margin-top: 5px;">
+            <i class="fas fa-users"></i> Select Users
+          </button>
+        </div>
+      </div>
+      
+      <div class="form-group">
+        <label>
+          <input type="checkbox" id="auto-enabled" checked>
+          Enable this automation
+        </label>
+      </div>
+        <div class="form-actions">
+          <button type="submit" class="btn btn-primary">
+            <i class="fas fa-save"></i> Create Automation
+          </button>
+          <button type="button" class="btn btn-secondary" onclick="closeAutomationModal()">
+            <i class="fas fa-times"></i> Cancel
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- User Search Modal -->
+  <div id="user-search-modal" class="modal">
+    <div class="modal-content wide-modal">
+      <div class="modal-header">
+        <h2><i class="fas fa-users"></i> Select Users</h2>
+        <button class="modal-close" onclick="closeUserSearchModal()">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="search-controls">
+          <div class="form-group">
+            <input type="text" id="user-search" placeholder="Search by email or username..." onkeyup="searchUsers()">
+          </div>
+        </div>
+        <div class="users-table-container">
+          <table id="users-table">
+            <thead>
+              <tr>
+                <th><input type="checkbox" id="select-all-users" onchange="toggleSelectAllUsers(this)"></th>
+                <th>ID</th>
+                <th>Email</th>
+                <th>Username</th>
+                <th>Created</th>
+              </tr>
+            </thead>
+            <tbody id="users-table-body"></tbody>
+          </table>
+        </div>
+        <div class="selected-count">
+          <span id="selected-users-count">0</span> users selected
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-primary" onclick="useSelectedUsers()">
+          <i class="fas fa-check"></i> Use Selected Users
+        </button>
+        <button class="btn btn-secondary" onclick="closeUserSearchModal()">
+          <i class="fas fa-times"></i> Cancel
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Admin Modal -->
+  <div id="admin-modal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2><i class="fas fa-user-plus"></i> Add Admin User</h2>
+        <button class="modal-close" onclick="closeAdminModal()">×</button>
+      </div>
+      <form id="admin-form" class="modal-form">
+        <div class="form-group">
+          <label for="admin-email">Email Address</label>
+          <input type="email" id="admin-email" required placeholder="admin@example.com">
+        </div>
+        <div class="form-group">
+          <label for="admin-name">Name</label>
+          <input type="text" id="admin-name" placeholder="Full Name">
+        </div>
+        <div class="form-group">
+          <label for="admin-password">Password</label>
+          <input type="password" id="admin-password" required placeholder="••••••••">
+        </div>
+        <div class="form-actions">
+          <button type="submit" class="btn btn-primary">
+            <i class="fas fa-check"></i> Create Admin
+          </button>
+          <button type="button" class="btn btn-secondary" onclick="closeAdminModal()">
+            <i class="fas fa-times"></i> Cancel
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
