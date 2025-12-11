@@ -109,17 +109,44 @@ async function handleLogout() {
 async function loadDashboard() {
   try {
     // Load email stats
-	    const stats = await apiCall('/email/stats');
-	    const totalSent = stats.hostinger.sent + stats.brevo.sent;
-	    const totalLimit = stats.hostinger.limit + stats.brevo.limit;
-	    
-	    // Update total emails sent today
-	    document.getElementById('emails-today').textContent = `${totalSent}/${totalLimit}`;
-	    
-	    // Update individual provider usage
-	    document.getElementById('hostinger-used').textContent = `${stats.hostinger.sent}/${stats.hostinger.limit}`;
-	    document.getElementById('brevo-used').textContent = `${stats.brevo.sent}/${stats.brevo.limit}`;
-
+    const stats = await apiCall('/email/stats');
+    
+    // Dynamically render individual Brevo account stats
+    const brevoAccountsContainer = document.getElementById('brevo-accounts-container');
+    brevoAccountsContainer.innerHTML = ''; // Clear previous content
+    
+    let totalSent = 0;
+    let totalLimit = 0;
+    
+    // Iterate over the accounts object from the API response
+    for (const provider in stats.accounts) {
+        const account = stats.accounts[provider];
+        
+        // Only process Brevo accounts (brevo_1, brevo_2, etc.)
+        if (provider.startsWith('brevo_')) {
+            const accountId = provider.split('_')[1];
+            const accountName = `Brevo Account ${accountId}`;
+            
+            totalSent += account.sent;
+            totalLimit += account.limit;
+            
+            const card = document.createElement('div');
+            card.className = 'stat-card';
+            card.innerHTML = `
+                <div class="stat-icon"><i class="fas fa-sync-alt"></i></div>
+                <div class="stat-content">
+                    <h3>${accountName}</h3>
+                    <p class="stat-value">${account.sent}/${account.limit} (Remaining: ${account.remaining})</p>
+                    <p class="stat-sub-value">${account.fromEmail}</p>
+                </div>
+            `;
+            brevoAccountsContainer.appendChild(card);
+        }
+    }
+    
+    // Update total emails sent today (using the total calculated from all Brevo accounts)
+    document.getElementById('emails-today').textContent = `${totalSent}/${totalLimit}`;
+    
     // Load automations
     const automations = await apiCall('/automations');
     const activeCount = automations.automations.filter(a => a.enabled).length;
@@ -134,6 +161,7 @@ async function loadDashboard() {
     console.error('Error loading dashboard:', error);
   }
 }
+
 
 // ==================== TEMPLATES ====================
 
